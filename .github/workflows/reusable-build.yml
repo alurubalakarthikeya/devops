@@ -45,6 +45,8 @@ jobs:
   build:
     name: 🏗️ Reusable Build (${{ inputs.compiler }}-${{ inputs.version }})
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       artifact_path: ${{ steps.package.outputs.path }}
       status: ${{ steps.build.outcome }}

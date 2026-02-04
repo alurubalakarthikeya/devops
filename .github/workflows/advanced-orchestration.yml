@@ -25,6 +25,8 @@ jobs:
   generate-jobs:
     name: 🎲 Generate Dynamic Job Matrix
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       matrix: ${{ steps.generate-matrix.outputs.matrix }}
       job_configs: ${{ steps.generate-configs.outputs.configs }}
@@ -109,6 +111,8 @@ jobs:
     name: 🎯 Execution Controller
     runs-on: ubuntu-latest
     needs: generate-jobs
+    permissions:
+      contents: read
     outputs:
       should_build: ${{ steps.decide.outputs.should_build }}
       should_test: ${{ steps.decide.outputs.should_test }}
@@ -180,6 +184,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [generate-jobs, execution-controller]
     if: ${{ needs.execution-controller.outputs.should_build == 'true' }}
+    permissions: {}
     steps:
       - name: 📥 Checkout
         uses: actions/checkout@v4
@@ -196,6 +201,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [generate-jobs, execution-controller]
     if: ${{ needs.execution-controller.outputs.should_build == 'true' }}
+    permissions: {}
     steps:
       - name: 📥 Checkout
         uses: actions/checkout@v4
@@ -212,6 +218,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [generate-jobs, execution-controller]
     if: ${{ needs.execution-controller.outputs.should_test == 'true' }}
+    permissions: {}
     steps:
       - name: 📥 Checkout
         uses: actions/checkout@v4
@@ -232,6 +239,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: [generate-jobs, execution-controller]
     if: ${{ needs.execution-controller.outputs.should_build == 'true' }}
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       max-parallel: ${{ github.event.inputs.parallel_execution && 10 || 2 }}
@@ -281,6 +290,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [execution-controller]
     if: ${{ needs.execution-controller.outputs.should_build == 'true' }}
+    permissions: {}
     outputs:
       result: ${{ steps.process.outputs.result }}
       data: ${{ steps.process.outputs.data }}
@@ -297,6 +307,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: chain-job-1
     if: ${{ needs.chain-job-1.outputs.result == 'success' }}
+    permissions: {}
     outputs:
       result: ${{ steps.process.outputs.result }}
     steps:
@@ -312,6 +323,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [chain-job-1, chain-job-2]
     if: ${{ needs.chain-job-2.outputs.result == 'success' }}
+    permissions: {}
     steps:
       - name: 🔨 Final processing
         run: |
@@ -326,6 +338,7 @@ jobs:
     name: 💻 Resource Optimization
     runs-on: ubuntu-latest
     needs: execution-controller
+    permissions: {}
     steps:
       - name: 📊 Analyze resource requirements
         run: |
@@ -367,6 +380,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [generate-jobs, execution-controller, complex-matrix, chain-job-3, resource-optimizer]
     if: always()
+    permissions: {}
     steps:
       - name: 📊 Generate summary
         run: |

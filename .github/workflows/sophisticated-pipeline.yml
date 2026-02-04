@@ -56,6 +56,8 @@ jobs:
   initialize:
     name: 🎯 Initialize Pipeline
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
       version: ${{ steps.version.outputs.version }}
@@ -191,6 +193,8 @@ jobs:
     name: 📊 Code Quality Analysis
     runs-on: ubuntu-latest
     needs: initialize
+    permissions:
+      contents: read
     steps:
       - name: 📥 Checkout code
         uses: actions/checkout@v4
@@ -228,6 +232,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     needs: [initialize, security-scan, code-quality]
     if: ${{ !github.event.inputs.skip_tests }}
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -321,6 +327,8 @@ jobs:
     name: 🧪 Integration Tests
     runs-on: ubuntu-latest
     needs: build-matrix
+    permissions:
+      contents: read
     strategy:
       matrix:
         test_suite: [smoke, regression, performance]
@@ -352,6 +360,8 @@ jobs:
     name: ⚡ Performance Benchmarking
     runs-on: ubuntu-latest
     needs: build-matrix
+    permissions:
+      contents: read
     steps:
       - name: 📥 Checkout code
         uses: actions/checkout@v4
@@ -381,6 +391,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: [build-matrix, integration-tests]
     if: ${{ needs.initialize.outputs.should_deploy == 'true' }}
+    permissions:
+      contents: read
     strategy:
       matrix:
         platform: [linux/amd64, linux/arm64, linux/arm/v7]
@@ -411,6 +423,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: [initialize, docker-build]
     if: ${{ needs.initialize.outputs.should_deploy == 'true' && needs.initialize.outputs.environment != 'production' }}
+    permissions:
+      contents: read
     environment:
       name: staging
       url: https://staging.example.com
@@ -438,6 +452,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: [initialize, deploy-staging]
     if: ${{ needs.initialize.outputs.should_deploy == 'true' && needs.initialize.outputs.environment == 'production' }}
+    permissions:
+      contents: read
     environment:
       name: production
       url: https://production.example.com
@@ -472,6 +488,8 @@ jobs:
     name: 📚 Generate Documentation
     runs-on: ubuntu-latest
     needs: [build-matrix]
+    permissions:
+      contents: read
     steps:
       - name: 📥 Checkout code
         uses: actions/checkout@v4
@@ -504,6 +522,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [build-matrix, integration-tests, deploy-staging, deploy-production]
     if: always()
+    permissions: {}
     steps:
       - name: 📊 Collect pipeline results
         run: |
@@ -533,6 +552,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [notify-results]
     if: always()
+    permissions: {}
     steps:
       - name: 🗑️ Clean up temporary resources
         run: |
@@ -553,6 +573,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [initialize, security-scan, code-quality, build-matrix, integration-tests, performance-benchmarks, generate-documentation, cleanup]
     if: always()
+    permissions: {}
     steps:
       - name: 📊 Generate pipeline summary
         run: |
