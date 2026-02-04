@@ -75,7 +75,7 @@ jobs:
           git diff --name-only HEAD~1 HEAD || echo "No previous commit"
           
           # Detect language and set build matrix
-          if [ -f "*.c" ] || [ -f "*.cpp" ]; then
+          if find . -maxdepth 2 -name "*.c" -o -name "*.cpp" | grep -q .; then
             echo "language=c" >> $GITHUB_OUTPUT
           fi
           
