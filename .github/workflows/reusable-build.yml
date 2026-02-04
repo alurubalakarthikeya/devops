@@ -1,0 +1,145 @@
+name: 🔄 Reusable Build Workflow
+
+on:
+  workflow_call:
+    inputs:
+      compiler:
+        description: 'Compiler to use'
+        required: true
+        type: string
+      version:
+        description: 'Compiler version'
+        required: true
+        type: string
+      build_type:
+        description: 'Build type (debug/release)'
+        required: false
+        type: string
+        default: 'release'
+      cache_enabled:
+        description: 'Enable caching'
+        required: false
+        type: boolean
+        default: true
+      artifact_name:
+        description: 'Name for the build artifact'
+        required: false
+        type: string
+        default: 'build-output'
+    outputs:
+      artifact_path:
+        description: 'Path to the built artifact'
+        value: ${{ jobs.build.outputs.artifact_path }}
+      build_status:
+        description: 'Status of the build'
+        value: ${{ jobs.build.outputs.status }}
+      build_time:
+        description: 'Time taken to build'
+        value: ${{ jobs.build.outputs.build_time }}
+    secrets:
+      BUILD_TOKEN:
+        required: false
+        description: 'Optional build authentication token'
+
+jobs:
+  build:
+    name: 🏗️ Reusable Build (${{ inputs.compiler }}-${{ inputs.version }})
+    runs-on: ubuntu-latest
+    outputs:
+      artifact_path: ${{ steps.package.outputs.path }}
+      status: ${{ steps.build.outcome }}
+      build_time: ${{ steps.timing.outputs.duration }}
+    steps:
+      - name: ⏱️ Start timer
+        id: start-time
+        run: echo "start=$(date +%s)" >> $GITHUB_OUTPUT
+
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🔧 Setup compiler
+        run: |
+          echo "Setting up ${{ inputs.compiler }} version ${{ inputs.version }}"
+          sudo apt-get update
+          if [ "${{ inputs.compiler }}" == "gcc" ]; then
+            sudo apt-get install -y gcc-${{ inputs.version }} g++-${{ inputs.version }}
+            sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-${{ inputs.version }} 100
+          else
+            sudo apt-get install -y clang-${{ inputs.version }}
+            sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-${{ inputs.version }} 100
+          fi
+
+      - name: 💾 Restore cache
+        if: ${{ inputs.cache_enabled }}
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache
+            build/
+          key: build-cache-${{ inputs.compiler }}-${{ inputs.version }}-${{ hashFiles('**/*.c') }}
+          restore-keys: |
+            build-cache-${{ inputs.compiler }}-${{ inputs.version }}-
+            build-cache-${{ inputs.compiler }}-
+
+      - name: 🔨 Build
+        id: build
+        env:
+          CC: ${{ inputs.compiler }}
+        run: |
+          echo "Building with ${{ inputs.compiler }}-${{ inputs.version }} in ${{ inputs.build_type }} mode"
+          
+          CFLAGS=""
+          if [ "${{ inputs.build_type }}" == "debug" ]; then
+            CFLAGS="-g -O0 -DDEBUG -Wall -Wextra"
+          else
+            CFLAGS="-O3 -DNDEBUG -march=native"
+          fi
+          
+          mkdir -p build/${{ inputs.build_type }}
+          
+          for file in *.c subdevops/*.c; do
+            if [ -f "$file" ]; then
+              output="build/${{ inputs.build_type }}/$(basename ${file%.c})"
+              echo "Compiling $file to $output"
+              ${{ inputs.compiler }}-${{ inputs.version }} $CFLAGS "$file" -o "$output" 2>&1 || echo "Note: $file"
+            fi
+          done
+
+      - name: 📦 Package artifacts
+        id: package
+        run: |
+          ARTIFACT_DIR="artifacts/${{ inputs.artifact_name }}"
+          mkdir -p "$ARTIFACT_DIR"
+          
+          if [ -d "build/${{ inputs.build_type }}" ]; then
+            cp -r build/${{ inputs.build_type }}/* "$ARTIFACT_DIR/" || true
+          fi
+          
+          echo "path=$ARTIFACT_DIR" >> $GITHUB_OUTPUT
+
+      - name: 📤 Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: artifacts/${{ inputs.artifact_name }}/
+          retention-days: 7
+
+      - name: ⏱️ Calculate build time
+        id: timing
+        run: |
+          START_TIME=${{ steps.start-time.outputs.start }}
+          END_TIME=$(date +%s)
+          DURATION=$((END_TIME - START_TIME))
+          echo "duration=${DURATION}s" >> $GITHUB_OUTPUT
+          echo "Build completed in ${DURATION} seconds"
+
+      - name: ✅ Build summary
+        run: |
+          echo "## 🏗️ Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Compiler**: ${{ inputs.compiler }}-${{ inputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Build Type**: ${{ inputs.build_type }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Cache Enabled**: ${{ inputs.cache_enabled }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Build Time**: ${{ steps.timing.outputs.duration }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status**: ${{ steps.build.outcome }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY

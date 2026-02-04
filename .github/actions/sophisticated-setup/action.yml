@@ -1,0 +1,238 @@
+name: '🔧 Sophisticated Build Environment Setup'
+description: 'Advanced composite action for setting up complex build environments with caching, tools, and dependencies'
+author: 'DevOps Team'
+
+inputs:
+  compiler:
+    description: 'Compiler to install (gcc, clang, or both)'
+    required: true
+    default: 'gcc'
+  compiler-version:
+    description: 'Compiler version to install'
+    required: false
+    default: '12'
+  enable-cache:
+    description: 'Enable build caching'
+    required: false
+    default: 'true'
+  install-tools:
+    description: 'Additional tools to install (comma-separated)'
+    required: false
+    default: 'cmake,make,ninja'
+  optimization-level:
+    description: 'Optimization level (0, 1, 2, 3, s, fast)'
+    required: false
+    default: '2'
+  enable-lto:
+    description: 'Enable Link-Time Optimization'
+    required: false
+    default: 'false'
+  sanitizers:
+    description: 'Sanitizers to enable (comma-separated: address,thread,undefined,leak)'
+    required: false
+    default: ''
+  coverage:
+    description: 'Enable code coverage'
+    required: false
+    default: 'false'
+
+outputs:
+  compiler-path:
+    description: 'Path to the installed compiler'
+    value: ${{ steps.setup-compiler.outputs.path }}
+  cache-hit:
+    description: 'Whether cache was restored'
+    value: ${{ steps.cache-restore.outputs.cache-hit }}
+  tools-installed:
+    description: 'List of installed tools'
+    value: ${{ steps.install-tools.outputs.tools }}
+  build-flags:
+    description: 'Recommended build flags'
+    value: ${{ steps.generate-flags.outputs.flags }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: 🔍 Detect system information
+      id: system-info
+      shell: bash
+      run: |
+        echo "os=$(uname -s)" >> $GITHUB_OUTPUT
+        echo "arch=$(uname -m)" >> $GITHUB_OUTPUT
+        echo "cores=$(nproc)" >> $GITHUB_OUTPUT
+        echo "memory=$(free -m | awk 'NR==2{printf "%s", $2}')" >> $GITHUB_OUTPUT
+        
+        echo "System Information:"
+        echo "- OS: $(uname -s)"
+        echo "- Architecture: $(uname -m)"
+        echo "- CPU Cores: $(nproc)"
+        echo "- Memory: $(free -m | awk 'NR==2{printf "%sMB", $2}')"
+
+    - name: 📦 Install system dependencies
+      shell: bash
+      run: |
+        echo "Installing system dependencies..."
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq \
+          build-essential \
+          pkg-config \
+          libssl-dev \
+          curl \
+          wget \
+          git
+        echo "✅ System dependencies installed"
+
+    - name: 🔧 Setup compiler
+      id: setup-compiler
+      shell: bash
+      run: |
+        echo "Setting up ${{ inputs.compiler }} version ${{ inputs.compiler-version }}"
+        
+        if [[ "${{ inputs.compiler }}" == "gcc" ]] || [[ "${{ inputs.compiler }}" == "both" ]]; then
+          echo "Installing GCC..."
+          sudo apt-get install -y -qq gcc-${{ inputs.compiler-version }} g++-${{ inputs.compiler-version }}
+          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-${{ inputs.compiler-version }} 100
+          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-${{ inputs.compiler-version }} 100
+          GCC_PATH=$(which gcc)
+          echo "GCC installed at: $GCC_PATH"
+          gcc --version
+        fi
+        
+        if [[ "${{ inputs.compiler }}" == "clang" ]] || [[ "${{ inputs.compiler }}" == "both" ]]; then
+          echo "Installing Clang..."
+          sudo apt-get install -y -qq clang-${{ inputs.compiler-version }} lld-${{ inputs.compiler-version }}
+          sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-${{ inputs.compiler-version }} 100
+          sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-${{ inputs.compiler-version }} 100
+          CLANG_PATH=$(which clang)
+          echo "Clang installed at: $CLANG_PATH"
+          clang --version
+        fi
+        
+        COMPILER_PATH=$(which ${{ inputs.compiler }})
+        echo "path=$COMPILER_PATH" >> $GITHUB_OUTPUT
+
+    - name: 🛠️ Install additional tools
+      id: install-tools
+      shell: bash
+      run: |
+        echo "Installing additional tools: ${{ inputs.install-tools }}"
+        
+        IFS=',' read -ra TOOLS <<< "${{ inputs.install-tools }}"
+        INSTALLED_TOOLS=""
+        
+        for tool in "${TOOLS[@]}"; do
+          tool=$(echo "$tool" | xargs)  # trim whitespace
+          echo "Installing $tool..."
+          
+          case "$tool" in
+            cmake)
+              sudo apt-get install -y -qq cmake
+              INSTALLED_TOOLS="$INSTALLED_TOOLS cmake"
+              ;;
+            make)
+              sudo apt-get install -y -qq make
+              INSTALLED_TOOLS="$INSTALLED_TOOLS make"
+              ;;
+            ninja)
+              sudo apt-get install -y -qq ninja-build
+              INSTALLED_TOOLS="$INSTALLED_TOOLS ninja"
+              ;;
+            ccache)
+              sudo apt-get install -y -qq ccache
+              INSTALLED_TOOLS="$INSTALLED_TOOLS ccache"
+              ;;
+            *)
+              echo "Unknown tool: $tool"
+              ;;
+          esac
+        done
+        
+        echo "tools=$INSTALLED_TOOLS" >> $GITHUB_OUTPUT
+        echo "✅ Tools installed: $INSTALLED_TOOLS"
+
+    - name: 💾 Restore cache
+      id: cache-restore
+      if: inputs.enable-cache == 'true'
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache
+          ~/.ccache
+          build/
+        key: build-cache-${{ inputs.compiler }}-${{ inputs.compiler-version }}-${{ hashFiles('**/*.c') }}
+        restore-keys: |
+          build-cache-${{ inputs.compiler }}-${{ inputs.compiler-version }}-
+          build-cache-${{ inputs.compiler }}-
+
+    - name: 🏗️ Generate build flags
+      id: generate-flags
+      shell: bash
+      run: |
+        echo "Generating build flags..."
+        
+        FLAGS="-O${{ inputs.optimization-level }}"
+        
+        # Add warning flags
+        FLAGS="$FLAGS -Wall -Wextra -Wpedantic"
+        
+        # Add optimization flags
+        if [[ "${{ inputs.optimization-level }}" == "3" ]] || [[ "${{ inputs.optimization-level }}" == "fast" ]]; then
+          FLAGS="$FLAGS -march=native -mtune=native"
+        fi
+        
+        # Add LTO if enabled
+        if [[ "${{ inputs.enable-lto }}" == "true" ]]; then
+          FLAGS="$FLAGS -flto"
+          echo "🔗 Link-Time Optimization enabled"
+        fi
+        
+        # Add sanitizers if specified
+        if [[ -n "${{ inputs.sanitizers }}" ]]; then
+          IFS=',' read -ra SANS <<< "${{ inputs.sanitizers }}"
+          for san in "${SANS[@]}"; do
+            san=$(echo "$san" | xargs)
+            FLAGS="$FLAGS -fsanitize=$san"
+          done
+          echo "🛡️ Sanitizers enabled: ${{ inputs.sanitizers }}"
+        fi
+        
+        # Add coverage if enabled
+        if [[ "${{ inputs.coverage }}" == "true" ]]; then
+          FLAGS="$FLAGS --coverage -fprofile-arcs -ftest-coverage"
+          echo "📊 Code coverage enabled"
+        fi
+        
+        echo "flags=$FLAGS" >> $GITHUB_OUTPUT
+        echo "Generated flags: $FLAGS"
+
+    - name: 🔍 Verify installation
+      shell: bash
+      run: |
+        echo "Verifying installation..."
+        echo ""
+        echo "Compiler:"
+        ${{ inputs.compiler }} --version
+        echo ""
+        echo "Build flags: ${{ steps.generate-flags.outputs.flags }}"
+        echo ""
+        echo "Cache status: ${{ steps.cache-restore.outputs.cache-hit }}"
+        echo ""
+        echo "✅ Environment setup complete!"
+
+    - name: 📊 Setup summary
+      shell: bash
+      run: |
+        echo "### 🔧 Build Environment Setup" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Compiler:** ${{ inputs.compiler }}-${{ inputs.compiler-version }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Optimization:** -O${{ inputs.optimization-level }}" >> $GITHUB_STEP_SUMMARY
+        echo "**LTO:** ${{ inputs.enable-lto }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Sanitizers:** ${{ inputs.sanitizers || 'none' }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Coverage:** ${{ inputs.coverage }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Cache Hit:** ${{ steps.cache-restore.outputs.cache-hit }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Tools:** ${{ steps.install-tools.outputs.tools }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+
+branding:
+  icon: 'settings'
+  color: 'blue'
